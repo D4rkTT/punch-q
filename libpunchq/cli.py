@@ -38,9 +38,13 @@ from libpunchq.utils import get_table_handle, \
 @click.option('--channel', type=click.UNPROCESSED, help='The channel to connect to. Eg: SYSTEM.ADMIN.SVRCONN')
 @click.option('--username', '-U', type=click.UNPROCESSED, help='The username to use.')
 @click.option('--password', '-P', type=click.UNPROCESSED, help='The the password to use.')
+@click.option('--keystore', type=click.Path(), help='The keystore dir that has the tls certificate.')
+@click.option('--cypherspec', type=click.UNPROCESSED, help='The CypherSpec for the certificate.')
+@click.option('--certlabel', type=click.UNPROCESSED, help='The Certificate Label.')
+@click.option('--tls', is_flag=True, help='Use TLS in the authentication')
 @click.option('--dump-config', is_flag=True, help='Dump the effective configuration used.')
 @click.option('--table-width', '-w', type=click.INT, help='The maximum width used for table output', default=120)
-def cli(config, host, port, qm_name, channel, username, password, dump_config, table_width):
+def cli(config, host, port, qm_name, channel, username, password, keystore, cypherspec, certlabel, tls, dump_config, table_width):
     """
         \b
         punch-q for IBM MQ
@@ -69,7 +73,11 @@ def cli(config, host, port, qm_name, channel, username, password, dump_config, t
         click.secho(f'Queue Manager Name:    {mqstate.qm_name}', dim=True)
         click.secho(f'Channel:               {mqstate.channel}', dim=True)
         click.secho(f'Username:              {mqstate.username}', dim=True)
-        click.secho(f'Password:              {mqstate.password}\n', dim=True)
+        click.secho(f'Password:              {mqstate.password}', dim=True)
+        click.secho(f'Keystore:              {mqstate.keystore}', dim=True)
+        click.secho(f'CypherSpec:            {mqstate.cypherspec}', dim=True)
+        click.secho(f'CertificateLabel:      {mqstate.certlabel}', dim=True)
+        click.secho(f'Use TLS:               {mqstate.tls}\n', dim=True)
 
 
 @cli.command()
@@ -103,6 +111,10 @@ def yaml(destination):
         'channel': 'SYSTEM.ADMIN.SVRCONN',
         'username': 'admin',
         'password': 'passw0rd',
+        'keystore': None,
+        'cypherspec': None,
+        'certlabel': None,
+        'tls': False
     }
 
     click.secho('# An example YAML configuration for punch-q.\n', dim=True)
@@ -127,7 +139,30 @@ def ping():
 
     mqstate.validate(['host', 'port', 'qm_name', 'channel'])
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
                          mqstate.username, mqstate.password)
 
     pcf = pymqi.PCFExecute(qmgr)
@@ -235,8 +270,31 @@ def channels(wordlist):
         channel = channel.strip()
 
         try:
-            qmgr = pymqi.connect(mqstate.qm_name, str(channel), mqstate.get_host(),
-                                 mqstate.username, mqstate.password)
+            if mqstate.tls:
+                mqstate.validate('keystore', 'cypherspec', 'certlabel')
+                os.environ['MQSSLKEYR'] = mqstate.keystore
+                os.environ['MQSSLKEYS'] = mqstate.cypherspec
+                cd = pymqi.CD()
+                cd.ChannelName = str(channel)
+                cd.ConnectionName = mqstate.get_host()
+                cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+                cd.TransportType = pymqi.CMQC.MQXPT_TCP
+                cd.SSLCipherSpec = mqstate.cypherspec
+                cd.CertificateLabel = mqstate.certlabel
+
+                sco = pymqi.SCO()
+                sco.KeyRepository = mqstate.keystore
+
+                qmgr = pymqi.connect_with_options(
+                    mqstate.qm_name,
+                    cd,
+                    sco,
+                    mqstate.username,
+                    mqstate.password
+                )
+            else:
+                qmgr = pymqi.connect(mqstate.qm_name, str(channel), mqstate.get_host(),
+                                mqstate.username, mqstate.password)
 
             pcf = pymqi.PCFExecute(qmgr)
             pcf.MQCMD_PING_Q_MGR()
@@ -304,7 +362,32 @@ def users(channel):
         click.secho(username + ':' + password, dim=True)
 
         try:
-            qmgr = pymqi.connect(mqstate.qm_name, channel, mqstate.get_host(), username, password)
+            if mqstate.tls:
+                mqstate.validate('keystore', 'cypherspec', 'certlabel')
+                os.environ['MQSSLKEYR'] = mqstate.keystore
+                os.environ['MQSSLKEYS'] = mqstate.cypherspec
+                cd = pymqi.CD()
+                cd.ChannelName = channel
+                cd.ConnectionName = mqstate.get_host()
+                cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+                cd.TransportType = pymqi.CMQC.MQXPT_TCP
+                cd.SSLCipherSpec = mqstate.cypherspec
+                cd.CertificateLabel = mqstate.certlabel
+
+                sco = pymqi.SCO()
+                sco.KeyRepository = mqstate.keystore
+
+                qmgr = pymqi.connect_with_options(
+                    mqstate.qm_name,
+                    cd,
+                    sco,
+                    mqstate.username,
+                    mqstate.password
+                )
+            else:
+                qmgr = pymqi.connect(mqstate.qm_name, channel, mqstate.get_host(),
+                                mqstate.username, mqstate.password)
+
             pcf = pymqi.PCFExecute(qmgr)
             pcf.MQCMD_PING_Q_MGR()
 
@@ -373,8 +456,32 @@ def queues(prefix, min_depth):
         pymqi.CMQC.MQIA_Q_TYPE: pymqi.CMQC.MQQT_ALL
     }
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
+
     pcf = pymqi.PCFExecute(qmgr)
 
     try:
@@ -442,8 +549,33 @@ def channels(prefix):
     mqstate.validate(['host', 'port', 'channel'])
 
     args = {pymqi.CMQCFC.MQCACH_CHANNEL_NAME: prefix.encode()}
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
+        
     pcf = pymqi.PCFExecute(qmgr)
 
     try:
@@ -501,8 +633,31 @@ def dump(queue, limit):
     click.secho(f'Dumping a maximum of {limit} messages from {queue}...', dim=True)
     click.secho('Only printing ASCII characters.', dim=True)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     # https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_7.5.0/com.ibm.mq.ref.dev.doc/q096780_.htm
     # https://github.com/dsuch/pymqi/blob/master/code/examples/put_get_correl_id.py
@@ -607,8 +762,31 @@ def sniff(queue, store, directory):
             click.secho(f'Creating {absolute_path} to save messages in...', dim=True)
             os.makedirs(absolute_path, mode=0o755)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     # https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_7.5.0/com.ibm.mq.ref.dev.doc/q096780_.htm
     # https://github.com/dsuch/pymqi/blob/master/code/examples/put_get_correl_id.py
@@ -742,8 +920,31 @@ def save(queue, limit, directory):
 
     click.secho(f'Saving a maximum of {limit} messages from {queue}...', dim=True)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     # https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_7.5.0/com.ibm.mq.ref.dev.doc/q096780_.htm
     # https://github.com/dsuch/pymqi/blob/master/code/examples/put_get_correl_id.py
@@ -816,8 +1017,31 @@ def pop(queue, save_to, skip_confirmation):
             click.secho('Did not receive confirmation, bailing...')
             return
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     try:
 
@@ -881,8 +1105,31 @@ def push(queue, source_file, source_string):
     click.secho(f'Pushing message onto queue: {queue}', dim=True)
     click.secho(f'Message (truncated): {message[:150]}', dim=True)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     try:
 
@@ -957,8 +1204,31 @@ def execute(cmd, args, service_name, wait, ignore_path):
     click.secho(f'Arguments: {args}', dim=True)
     click.secho(f'Service Name: {service_name.decode()}\n', dim=True)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     # create the service
     click.secho('Creating service...', dim=True)
@@ -1052,8 +1322,31 @@ def reverse(ip, port, service_name, perl, wait):
     click.secho(f'Arguments: {payload}', dim=True, fg='blue')
     click.secho(f'Service Name: {service_name.decode()}\n', dim=True)
 
-    qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
-                         mqstate.username, mqstate.password)
+    if mqstate.tls:
+        mqstate.validate('keystore', 'cypherspec', 'certlabel')
+        os.environ['MQSSLKEYR'] = mqstate.keystore
+        os.environ['MQSSLKEYS'] = mqstate.cypherspec
+        cd = pymqi.CD()
+        cd.ChannelName = mqstate.channel
+        cd.ConnectionName = mqstate.get_host()
+        cd.ChannelType = pymqi.CMQC.MQCHT_CLNTCONN
+        cd.TransportType = pymqi.CMQC.MQXPT_TCP
+        cd.SSLCipherSpec = mqstate.cypherspec
+        cd.CertificateLabel = mqstate.certlabel
+
+        sco = pymqi.SCO()
+        sco.KeyRepository = mqstate.keystore
+
+        qmgr = pymqi.connect_with_options(
+            mqstate.qm_name,
+            cd,
+            sco,
+            mqstate.username,
+            mqstate.password
+        )
+    else:
+        qmgr = pymqi.connect(mqstate.qm_name, mqstate.channel, mqstate.get_host(),
+                        mqstate.username, mqstate.password)
 
     # create the service
     click.secho('Creating service...', dim=True)

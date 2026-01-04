@@ -40,6 +40,10 @@ class MQState(State):
         self.channel = None
         self.username = None
         self.password = None
+        self.keystore = None
+        self.cypherspec = None
+        self.certlabel = None
+        self.tls = False
         self.mcauser = None
 
         # arbitrary settings. This should not really be here
